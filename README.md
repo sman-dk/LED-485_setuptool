@@ -42,7 +42,35 @@ The display ships from the manufacturer with modbus unit id ("modbus address") 1
 ```pip3 install pymodbus pyserial```
 
 ## Usage
+```commandline
+$ ./led-485_setuptool.py -h
+usage: LED-485_setuptool.py [-h] [-p SERIAL_PORT | --host HOST] [-b BAUDRATE] [--set-baudrate {1200,2400,4800,9600,19200,38400,57600,115200}]
+                            [--tcp-port TCP_PORT] [-u UNIT_ID] [--set-unit-id SET_UNIT_ID] [-t TIMEOUT]
+                            [--value VALUE | --decimal-point {0,1,2,3}]
 
+A tool to communicate via rs485 modbus with the LED-485 displays
+
+options:
+  -h, --help            show this help message and exit
+  -p SERIAL_PORT, --serial-port SERIAL_PORT
+                        Serial port
+  --host HOST           Hostname (if modbus gateway)
+  -b BAUDRATE, --baudrate BAUDRATE
+                        Baudrate (when using a serial port)
+  --set-baudrate {1200,2400,4800,9600,19200,38400,57600,115200}
+                        Set the serial baudrate
+  --tcp-port TCP_PORT   Modbus gateway TCP port
+  -u UNIT_ID, --unit-id UNIT_ID
+                        Modbus unit id to use (1-255). This is the "slave id" or "address" of the modbus slave
+  --set-unit-id SET_UNIT_ID
+                        Set modbus unit id (1-255)
+  -t TIMEOUT, --timeout TIMEOUT
+                        Timeout in seconds
+  --value VALUE         Show a 16-bit signed integer in the display
+  --decimal-point {0,1,2,3}
+                        Decimal point
+
+```
 ## Examples
 Write the value 12.345 in the display:
 ```

@@ -72,7 +72,7 @@ options:
 
 ```
 ## Examples
-Write the value 12.345 in the display:
+Display the value 12.345:
 ```
 $ ./led-485_setuptool.py --serial-port /dev/ttyUSB0 --decimal-point 3
 Starting the LED-485 setuptool programm

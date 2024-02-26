@@ -70,8 +70,27 @@ def i16_limit(string):
     """ Type function for argparse - an int bounds for signed 16-bit integer """
     value = int(string)
     if not -2 ** 15 < value < 2 ** 15 - 1:
-        raise argparse.ArgumentTypeError('Must be an integer')
+        raise argparse.ArgumentTypeError('Must be an integer in the range -32768 to 32767')
     return value
+
+
+def ieee754(value_list):
+    """Convert the value list as IEEE 754 32 bit single precision floats from the electricity meters"""
+    bin_float = format(value_list[0] & 0xffff, '016b') + format(value_list[1] & 0xffff, '016b')
+    packed_v = struct.pack('>L', int(bin_float, 2))
+    return struct.unpack('>f', packed_v)[0]
+
+
+def reverse_ieee754(float_value):
+    """Convert a float to an IEEE 754 32 bit single precision value list"""
+    # Pack the float as a 32-bit unsigned long (big-endian)
+    packed_v = struct.pack('>f', float_value)
+    # Unpack as a 32-bit unsigned long (big-endian) and convert to binary
+    bin_value = format(struct.unpack('>L', packed_v)[0], '032b')
+    # Split the binary string into two 16-bit parts and convert them to integers
+    value1 = int(bin_value[:16], 2)
+    value2 = int(bin_value[16:], 2)
+    return [value1, value2]
 
 
 def i16(value):
@@ -94,10 +113,11 @@ def modbus_req(args, register_name, client=None, payload=None, unit_id=None):
 
     display_regs = {
             'LED-485': {
-                'i16': [6, 0x0, 1, '16-bit signed integer (see also the decimal point setting)', 'i16'],
+                'i16': [6, 0x0, 1, '16-bit signed integer (see also the decimal point setting)', 'I16'],
                 'dec_point': [6, 0x4, 1, 'Position of decimalpoint', 'U16'],
                 'set_unit_id': [6, 0x2, 1, 'Set new unit id ("modbus address")', 'U16'],
                 'set_baudrate': [6, 0x3, 1, 'Set new baudrate', 'U16'],
+                'float': [16, 0x90, 2, 'float', 'F32'],
                 },
     }
 
@@ -114,9 +134,11 @@ def modbus_req(args, register_name, client=None, payload=None, unit_id=None):
                 print(f'ERROR missing payload for {register_name}\nExiting!', sys.stderr)
                 sys.exit(1)
             if data_type:
-                if data_type == 'U16':
+                if data_type == 'F32':
+                    payload = reverse_ieee754(payload)
+                elif data_type == 'U16':
                     payload = u16(payload)
-                elif data_type == 'i16':
+                elif data_type == 'I16':
                     payload = i16(payload)
                 else:
                     print(f'ERROR data type for {register_name} using function code {function_code} is not supported. '
@@ -142,10 +164,12 @@ def modbus_req(args, register_name, client=None, payload=None, unit_id=None):
             sys.exit(1)
         regs = res.registers
         if regs:
-            if data_type == 'U16':
+            if data_type == 'F16':
+                value = ieee754(regs)
+            elif data_type == 'U16':
                 value = u16(regs)
-            elif data_type == 'i16':
-                value = u16(regs)
+            elif data_type == 'I16':
+                value = i16(regs)
             elif data_type == '':
                 value = None
             else:
@@ -157,25 +181,33 @@ def modbus_req(args, register_name, client=None, payload=None, unit_id=None):
     return {'value': value, 'info_text': info_text}
 
 
-def display_i16(args, client=None, string=None):
+def display_i16(args, client=None):
     """Display a signed int on the display. See also display_dec_point()"""
-    value = int(string)
+    value = int(args.value)
     print(f'Display: "{value}" ', end='')
     response = modbus_req(args, 'i16', payload=value)
     print(response['info_text'])
 
 
-def display_dec_point(args, client=None, string=None):
+def display_dec_point(args, client=None):
     """Change the configured decimal point for the meter. The setting is lost upon a reboot of the display."""
-    value = int(string)
+    value = int(args.decimal_point)
     print(f'Display: "{value}" ', end='')
     response = modbus_req(args, 'dec_point', payload=value)
     print(response['info_text'])
 
 
+def display_float(args, client=None):
+    """Display a float"""
+    value = float(args.float)
+    print(f'Display: "{value}" ', end='')
+    response = modbus_req(args, 'float', payload=value)
+    print(response['info_text'])
+
+
 def set_baudrate(args, client=None):
     """Change the configured baudrate of the display"""
-    baudrate_dict = {1: 1200, 2: 2400, 3: 4800, 4: 9600, 5:19200, 6: 38400, 7: 57600, 8: 115200}
+    baudrate_dict = {1: 1200, 2: 2400, 3: 4800, 4: 9600, 5: 19200, 6: 38400, 7: 57600, 8: 115200}
     # Set the new baudrate
     baudrate = list(baudrate_dict.keys())[list(baudrate_dict.values()).index(int(args.set_baudrate))]
     print(f'Setting the baudrate to {args.set_baudrate}')
@@ -200,7 +232,7 @@ def main():
     display_group = parser.add_mutually_exclusive_group()
     dev_group.add_argument('-p', '--serial-port', help='Serial port')
     dev_group.add_argument('--host', help='Hostname (if modbus gateway)')
-    parser.add_argument('-b', '--baudrate', help='Serial baudrate to use when communicating with modbus rtu using a serial port', default=9600, type=int)
+    parser.add_argument('-b', '--baudrate', help='Baudrate (when using a serial port)', default=9600, type=int)
     ch_group.add_argument('--set-baudrate', help='Set the serial baudrate',
                           choices=['1200', '2400', '4800', '9600', '19200', '38400', '57600', '115200'])
     parser.add_argument('--tcp-port', help='Modbus gateway TCP port', default=502, type=int)
@@ -211,6 +243,8 @@ def main():
     parser.add_argument('-t', '--timeout', help='Timeout in seconds', default=2, type=int)
     display_group.add_argument('--value', help='Show a 16-bit signed integer in the display', type=i16_limit)
     display_group.add_argument('--decimal-point', help='Decimal point', choices=['0', '1', '2', '3'])
+## For some reason the display does not work with this documented feature, so I am outcommenting it for now
+#    display_group.add_argument('--float', help='Display a float')
 
     args = parser.parse_args()
 
@@ -226,11 +260,13 @@ def main():
         set_unit_id(args, client=client)
 
     if args.value:
-        display_i16(args, client=client, string=args.value)
+        display_i16(args, client=client)
 
     if args.decimal_point:
-        display_dec_point(args, client=client, string=args.decimal_point)
+        display_dec_point(args, client=client)
 
+    if args.float:
+        display_float(args, client=client)
 
 
 if __name__ == '__main__':

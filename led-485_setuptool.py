@@ -118,6 +118,7 @@ def modbus_req(args, register_name, client=None, payload=None, unit_id=None):
                 'set_unit_id': [6, 0x2, 1, 'Set new unit id ("modbus address")', 'U16'],
                 'set_baudrate': [6, 0x3, 1, 'Set new baudrate', 'U16'],
                 'float': [16, 0x90, 2, 'float', 'F32'],
+                'str_custom_segment': [16, 0x80, 'n/a', 'custom segment string', ''],
                 },
     }
 
@@ -140,6 +141,8 @@ def modbus_req(args, register_name, client=None, payload=None, unit_id=None):
                     payload = u16(payload)
                 elif data_type == 'I16':
                     payload = i16(payload)
+                elif data_type == '':
+                    pass
                 else:
                     print(f'ERROR data type for {register_name} using function code {function_code} is not supported. '
                           f'Please check the script.\nExiting!', sys.stderr)
@@ -204,6 +207,41 @@ def display_float(args, client=None):
     response = modbus_req(args, 'float', payload=value)
     print(response['info_text'])
 
+def display_str(args, client=None, string=None):
+    """Display an ASCII string"""
+    # Input validation
+    if not 1 <= len(string) <= 6 and not type(string) is str:
+        print('ERROR the provided string is not between 1 and 6 characters long or it is not a string.\nExiting!', file=sys.stderr)
+        sys.exit(1)
+    string = string.upper()
+    string = string.replace('_', ' ')
+    for char in string:
+        oc = ord(char)
+        if not (oc == 32 or 48 <= oc <= 57 or 65 <= oc <=90):
+            print('ERROR only space, A-Z and 0-9 characters are allowed.\nExiting!', file=sys.stderr)
+            sys.exit(1)
+    map_tbl = {
+        ' ': '00', '0': '3f', '1': '06', '2': '5b', '3': '4f',
+        '4': '66', '5': '6d', '6': '7d', '7': '07', '8': '7f',
+        '9': '6f', 'A': '77', 'B': '7c', 'C': '39', 'D': '5e',
+        'E': '79', 'F': '71', 'G': '3d', 'H': '76', 'I': '10',
+        'J': '0e', 'K': '7a', 'L': '38', 'M': '55', 'N': '54',
+        'O': '5c', 'P': '73', 'Q': '67', 'R': '50', 'S': '64',
+        'T': '78', 'U': '3e', 'V': '62', 'W': '6a', 'X': '36',
+        'Y': '6e', 'Z': '49',
+    }
+    if len(string) % 2 == 1:
+        string += ' '
+    payload = []
+    for i in range(len(string)//2):
+        hex_str = ''
+        for j in range(2):
+            hex_str += map_tbl[string[i*2+j]]
+        payload.append(int(hex_str, 16))
+    print(f'Display: "{string}" ', end='')
+    response = modbus_req(args, 'str_custom_segment', payload=payload)
+    print(response['info_text'])
+
 
 def set_baudrate(args, client=None):
     """Change the configured baudrate of the display"""
@@ -243,6 +281,8 @@ def main():
     parser.add_argument('-t', '--timeout', help='Timeout in seconds', default=2, type=int)
     display_group.add_argument('--value', help='Show a 16-bit signed integer in the display', type=i16_limit)
     display_group.add_argument('--decimal-point', help='Decimal point', choices=['0', '1', '2', '3'])
+    display_group.add_argument('--str', help='Write a simple string (_ is space), 0-9, A-Z', type=str)
+
 ## For some reason the display does not work with this documented feature, so I am outcommenting it for now
 #    display_group.add_argument('--float', help='Display a float')
 
@@ -265,8 +305,13 @@ def main():
     if args.decimal_point:
         display_dec_point(args, client=client)
 
-    if args.float:
-        display_float(args, client=client)
+    if args.str:
+        display_str(args, client=client, string=args.str)
+
+## For some reason the display does not work with this documented feature, so I am outcommenting it for now
+#    if args.float:
+#        display_float(args, client=client)
+
 
 
 if __name__ == '__main__':

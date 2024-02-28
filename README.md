@@ -9,7 +9,7 @@ Change modbus settings and write text etc. on RS485 displays e.g. LED-485-046
 
 ## Features
 - Write a simple text string (' ', 0-9, A-Z)
-- Write a number (integer or decimal) in the display
+- Write a number (integer or decimal/float) in the display
 - Change baudrate and modbus unit id ("modbus address")
 
 More features, e.g. writing text, might come in the future.

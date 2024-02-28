@@ -210,7 +210,7 @@ def display_float(args, client=None):
 def display_str(args, client=None, string=None):
     """Display an ASCII string"""
     # Input validation
-    if not 1 <= len(string) <= 6 and not type(string) is str:
+    if not 1 <= len(string) <= 6 or not type(string) is str:
         print('ERROR the provided string is not between 1 and 6 characters long or it is not a string.\nExiting!', file=sys.stderr)
         sys.exit(1)
     string = string.upper()

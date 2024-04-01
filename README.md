@@ -12,8 +12,6 @@ Change modbus settings and write text etc. on RS485 displays e.g. LED-485-046
 - Write a number (integer or decimal/float) in the display
 - Change baudrate and modbus unit id ("modbus address")
 
-More features, e.g. writing text, might come in the future.
-
 Both a serial device (e.g. USB RS485 adaptor) and modbus gateway is supported.
 
 ## Supported models

@@ -80,7 +80,7 @@ def reverse_ieee754(float_value):
 
 def i16(value):
     if value < 0:
-        value+= 2**16
+        value += 2**16
     return value
 
 
@@ -104,6 +104,7 @@ def modbus_req(args, register_name, client=None, payload=None, unit_id=None):
                 'set_baudrate': [6, 0x3, 1, 'Set new baudrate', 'U16'],
                 'float': [16, 0x90, 2, 'float', 'F32'],
                 'str_custom_segment': [16, 0x80, 'n/a', 'custom segment string', ''],
+                'str_ascii': [16, 0x70, 'n/a', 'ASCII string', ''],
                 },
     }
 
@@ -173,7 +174,7 @@ def display_i16(args, client=None):
     """Display a signed int on the display. See also display_dec_point()"""
     value = int(args.value)
     print(f'Display: "{value}" ', end='')
-    response = modbus_req(args, 'i16', payload=value)
+    response = modbus_req(args, 'i16', payload=value, client=client)
     print(response['info_text'])
 
 
@@ -181,7 +182,7 @@ def display_dec_point(args, client=None):
     """Change the configured decimal point for the meter. The setting is lost upon a reboot of the display."""
     value = int(args.decimal_point)
     print(f'Display: "{value}" ', end='')
-    response = modbus_req(args, 'dec_point', payload=value)
+    response = modbus_req(args, 'dec_point', payload=value, client=client)
     print(response['info_text'])
 
 
@@ -189,20 +190,22 @@ def display_float(args, client=None):
     """Display a float"""
     value = float(args.float)
     print(f'Display: "{value}" ', end='')
-    response = modbus_req(args, 'float', payload=value)
+    response = modbus_req(args, 'float', payload=value, client=client)
     print(response['info_text'])
 
-def display_str(args, client=None, string=None):
-    """Display an ASCII string"""
+
+def display_cust_seg(args, client=None, string=None):
+    """Display a string using the Custom Segment method"""
     # Input validation
-    if not 1 <= len(string) <= 6 or not type(string) is str:
-        print('ERROR the provided string is not between 1 and 6 characters long or it is not a string.\nExiting!', file=sys.stderr)
+    if not 1 <= len(string) <= args.display_size or not type(string) is str:
+        print('ERROR the provided string is not between 1 and 6 characters long or it is not a string.\nExiting!',
+              file=sys.stderr)
         sys.exit(1)
     string = string.upper()
     string = string.replace('_', ' ')
     for char in string:
         oc = ord(char)
-        if not (oc == 32 or 48 <= oc <= 57 or 65 <= oc <=90):
+        if not (oc == 32 or 48 <= oc <= 57 or 65 <= oc <= 90):
             print('ERROR only space, A-Z and 0-9 characters are allowed.\nExiting!', file=sys.stderr)
             sys.exit(1)
     map_tbl = {
@@ -215,6 +218,7 @@ def display_str(args, client=None, string=None):
         'T': '78', 'U': '3e', 'V': '62', 'W': '6a', 'X': '36',
         'Y': '6e', 'Z': '49',
     }
+
     if len(string) % 2 == 1:
         string += ' '
     payload = []
@@ -224,7 +228,38 @@ def display_str(args, client=None, string=None):
             hex_str += map_tbl[string[i*2+j]]
         payload.append(int(hex_str, 16))
     print(f'Display: "{string}" ', end='')
-    response = modbus_req(args, 'str_custom_segment', payload=payload)
+    print(payload)
+    response = modbus_req(args, 'str_custom_segment', payload=payload, client=client)
+    print(response['info_text'])
+
+
+def display_ascii(args, client=None, string=None):
+    """Display an ASCII string"""
+    # Input validation
+    if not 1 <= len(string) <= args.display_size or not type(string) is str:
+        print('ERROR the provided string is not between 1 and 6 characters long or it is not a string.\nExiting!',
+              file=sys.stderr)
+        sys.exit(1)
+    string = string.rjust(args.display_size)
+    payload = []
+    if len(string) % 2 == 1:
+        string += ' '
+    i = 0
+    prev = 0
+    for char in string:
+        oc = ord(char)
+        # not all ASCII characters are allowed. The ones below worked on the display I tested with.
+        if not (0x20 <= oc <= 0x7E):
+            print(f'ERROR character "{char}" is not allowed\nExiting!', file=sys.stderr)
+            sys.exit(1)
+        if i % 2 == 0:
+            prev = oc
+        else:
+            # We need to convert to uint16
+            payload.append(prev*2**8+oc)
+        i += 1
+    print(f'Display: "{string}" ', end='')
+    response = modbus_req(args, 'str_ascii', payload=payload, client=client)
     print(response['info_text'])
 
 
@@ -255,7 +290,8 @@ def main():
     display_group = parser.add_mutually_exclusive_group()
     dev_group.add_argument('-p', '--serial-port', help='Serial port')
     dev_group.add_argument('--host', help='Hostname (if modbus gateway)')
-    parser.add_argument('-b', '--baudrate', help='Baudrate (when using a serial port)', default=9600, type=int)
+    parser.add_argument('-b', '--baudrate', help='Baudrate (when using a serial port)',
+                        default=9600, type=int)
     ch_group.add_argument('--set-baudrate', help='Set the serial baudrate',
                           choices=['1200', '2400', '4800', '9600', '19200', '38400', '57600', '115200'])
     parser.add_argument('--tcp-port', help='Modbus gateway TCP port', default=502, type=int)
@@ -264,12 +300,17 @@ def main():
                         default='1', type=address_limit)
     ch_group.add_argument('--set-unit-id', help='Set modbus unit id (1-255)', type=address_limit, )
     parser.add_argument('-t', '--timeout', help='Timeout in seconds', default=2, type=int)
-    display_group.add_argument('--value', help='Show a 16-bit signed integer in the display', type=i16_limit)
+    parser.add_argument('-d', '--display-size', help='Number of 7-segment elements in the display.',
+                        default=6, type=int, choices=[4, 5, 6])
+    display_group.add_argument('--value', help='Show a 16-bit signed integer in the display',
+                               type=i16_limit)
     display_group.add_argument('--decimal-point', help='Decimal point', choices=['0', '1', '2', '3'])
-    display_group.add_argument('--str', help='Write a simple string (_ is space), 0-9, A-Z', type=str)
+    display_group.add_argument('--cust-seg', help='Write a simple string using the "custom segment" '
+                                                  'method. (_ is space), 0-9, A-Z', type=str)
+    display_group.add_argument('--str', help='Write an ASCII string', type=str)
 
-## For some reason the display does not work with this documented feature, so I am outcommenting it for now
-#    display_group.add_argument('--float', help='Display a float')
+    # # For some reason the display does not work with this documented feature, so I am outcommenting it for now
+    # display_group.add_argument('--float', help='Display a float')
 
     args = parser.parse_args()
 
@@ -284,19 +325,21 @@ def main():
     if args.set_unit_id:
         set_unit_id(args, client=client)
 
-    if args.value:
+    if args.value is not None:
         display_i16(args, client=client)
 
     if args.decimal_point:
         display_dec_point(args, client=client)
 
+    if args.cust_seg:
+        display_cust_seg(args, client=client, string=args.cust_seg)
+
     if args.str:
-        display_str(args, client=client, string=args.str)
+        display_ascii(args, client=client, string=args.str)
 
-## For some reason the display does not work with this documented feature, so I am outcommenting it for now
-#    if args.float:
-#        display_float(args, client=client)
-
+    # # For some reason the display does not work with this documented feature, so I am outcommenting it for now
+    # if args.float:
+    #     display_float(args, client=client)
 
 
 if __name__ == '__main__':
